@@ -199,16 +199,6 @@ class MD3Importer_KP:
         tag.keyframe_insert('location', frame=frame, group='LocRot')
         tag.keyframe_insert('rotation_quaternion', frame=frame, group='LocRot')
 
-    def read_surface_triangle(self, i):
-        data = self.unpack(fmt.Triangle)
-        ls = i * 3
-        self.mesh.loops[ls].vertex_index = data.a
-        self.mesh.loops[ls + 1].vertex_index = data.c  # swapped
-        self.mesh.loops[ls + 2].vertex_index = data.b  # swapped
-        self.mesh.polygons[i].loop_start = ls
-        self.mesh.polygons[i].loop_total = 3
-        self.mesh.polygons[i].use_smooth = True
-
     def read_surface_vert(self, i):
         data = self.unpack(fmt.Vertex)
         self.verts[i].co = Vector((data.x, data.y, data.z))
@@ -305,17 +295,25 @@ class MD3Importer_KP:
         if data.nTris > 8192:
             print('Warning: md3 surface contains too many triangles')
 
+        verts = []
+        self.file.seek(start_pos + data.offVerts)
+        for _ in range(data.nVerts):
+            v = self.unpack(fmt.Vertex)
+            verts.append((v.x, v.y, v.z))
+
+        faces = []
+        self.file.seek(start_pos + data.offTris)
+        for _ in range(data.nTris):
+            t = self.unpack(fmt.Triangle)
+            faces.append((t.a, t.c, t.b))
+
         self.mesh = bpy.data.meshes.new(data.name)
-        self.mesh.vertices.add(count=data.nVerts)
-        self.mesh.polygons.add(count=data.nTris)
-        self.mesh.loops.add(count=data.nTris * 3)
-
-        self.read_n_items(data.nTris, start_pos + data.offTris, self.read_surface_triangle)
-        self.verts = self.mesh.vertices
-        self.read_n_items(data.nVerts, start_pos + data.offVerts, self.read_surface_vert)
-
+        self.mesh.from_pydata(verts, [], faces)
         self.mesh.validate()
-        self.mesh.calc_normals()
+        self.mesh.update()
+
+        for p in self.mesh.polygons:
+            p.use_smooth = True
 
         self.material = bpy.data.materials.new('Main')  # hy: TODO shader/.skin
         self.mesh.materials.append(self.material)
